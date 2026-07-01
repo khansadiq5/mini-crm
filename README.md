@@ -162,3 +162,25 @@ curl -X POST http://localhost/api/logout \
 ```
 
 **Tests (7 passing):** successful login, wrong password → 422, non-existent email → 422, missing fields → 422, /me returns user, unauthenticated → 401, logout revokes token.
+
+### Phase 3 — Authorization
+
+**Goal:** Centralize lead visibility and permission rules in a `LeadPolicy` — no controller logic yet.
+
+**Visibility model (from PROJECT_SCOPE.md §3):**
+
+| Action | Manager | Rep |
+|---|---|---|
+| `viewAny` | ✅ all leads | ✅ (query scoped later) |
+| `view` | ✅ any lead | ✅ only if `assigned_to === user.id` |
+| `create` | ✅ | ✅ |
+| `update` | ✅ any lead | ✅ only if `assigned_to === user.id` |
+| `assign` | ✅ | ❌ |
+
+**Why a Policy instead of controller if-checks:**
+
+- **Single source of truth** — the same rules apply whether authorization is checked in a controller, a Blade view, a queue job, or a console command. No risk of copy-paste drift.
+- **Laravel convention** — `$this->authorize('update', $lead)` in controllers is one line. The policy is auto-discovered by model name (`Lead` → `LeadPolicy`).
+- **Testable in isolation** — the 11 policy tests exercise `$user->can()` directly without HTTP overhead, making them fast and focused.
+
+**Tests (11 passing):** viewAny (manager + rep), view (manager any, rep own, rep denied other, rep denied unassigned), create (both roles), update (manager any, rep own, rep denied), assign (manager allowed, rep denied).
