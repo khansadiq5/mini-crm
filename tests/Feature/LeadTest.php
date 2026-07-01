@@ -270,3 +270,11 @@ it('allows status transition to won after rep logs an activity', function () {
         ->assertOk()
         ->assertJsonPath('data.status', 'won');
 });
+
+it('returns json error format on 404 even without accept header', function () {
+    $user = User::factory()->manager()->create();
+    $response = $this->actingAs($user, 'sanctum')->get('/api/leads/99999');
+
+    $response->assertStatus(404)
+        ->assertJsonStructure(['message']);
+});

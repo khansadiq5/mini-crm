@@ -341,4 +341,51 @@ curl -X GET http://localhost/api/reports/rep-performance \
 
 **Tests (3 passing in this module, 40 total):** Verifies accurate summation/grouping, manager vs rep visibility scoping, and validates that query count remains flat/constant ($O(1)$ complexity) when scale increases from 2 reps to 7 reps.
 
+### Phase 7 — API Consistency
+
+**Goal:** Standardize response envelopes across all endpoints (reads, updates, logins, logouts, actions, and errors) and configure clean JSON error formats.
+
+**Design & Exception Tweaks:**
+
+- **JSON Resource Enforcement:** Refactored `AuthController` (login/logout/me) to route their results through `LoginResource`, `MessageResource`, and `UserResource`.
+- **Enforced JSON Exceptions:** Modified `bootstrap/app.php` exception handler using `shouldRenderJsonWhen` to automatically format all errors occurring on routes starting with `api/*` as JSON, bypassing standard browser HTML rendering even if the `Accept: application/json` header is absent.
+
+**Standard Response Shapes:**
+
+#### 1. Success Response (200 OK / 201 Created)
+Wrapped in a standard `"data"` envelope:
+```json
+{
+  "data": {
+    "id": 1,
+    "name": "Jane Rep",
+    "email": "jane@example.com",
+    "role": "rep"
+  }
+}
+```
+
+#### 2. Validation Error (422 Unprocessable Content)
+Returns the default Laravel validation envelope:
+```json
+{
+  "message": "The rep id field is required.",
+  "errors": {
+    "rep_id": [
+      "The rep id field is required."
+    ]
+  }
+}
+```
+
+#### 3. Authorization / Authentication Failure (403 Forbidden / 401 Unauthorized)
+Returns standard message format:
+```json
+{
+  "message": "This action is unauthorized."
+}
+```
+
+**Tests (1 passing in this module, 41 total):** Verifies that exceptions on API routes return clean JSON formats containing a `message` parameter on 404, bypassing standard HTML views.
+
 

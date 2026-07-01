@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
+use App\Http\Resources\LoginResource;
+use App\Http\Resources\MessageResource;
+use App\Http\Resources\UserResource;
 use App\Models\User;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -15,7 +17,7 @@ class AuthController extends Controller
     /**
      * Authenticate a user and return a Sanctum token.
      */
-    public function login(LoginRequest $request): JsonResponse
+    public function login(LoginRequest $request): LoginResource
     {
         $user = User::where('email', $request->email)->first();
 
@@ -27,44 +29,27 @@ class AuthController extends Controller
 
         $token = $user->createToken('api-token')->plainTextToken;
 
-        return response()->json([
-            'message' => 'Authenticated successfully.',
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
-            ],
+        return new LoginResource([
             'token' => $token,
-        ], 200);
+            'user' => $user,
+        ]);
     }
 
     /**
      * Revoke the current access token (logout).
      */
-    public function logout(Request $request): JsonResponse
+    public function logout(Request $request): MessageResource
     {
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json([
-            'message' => 'Logged out successfully.',
-        ]);
+        return new MessageResource('Logged out successfully.');
     }
 
     /**
      * Return the currently authenticated user.
      */
-    public function me(Request $request): JsonResponse
+    public function me(Request $request): UserResource
     {
-        $user = $request->user();
-
-        return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
-            ],
-        ]);
+        return new UserResource($request->user());
     }
 }
