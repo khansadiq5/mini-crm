@@ -99,3 +99,26 @@ _(to be filled in during final review)_
 - Default Laravel migrations present: `users`, `password_reset_tokens`, `sessions`, `cache`, `jobs`, `personal_access_tokens`.
 
 **No CRM-specific models, migrations, or logic were added in this phase.**
+
+### Phase 1 — Data Modelling
+
+**Goal:** Define the database schema, Eloquent models, relationships, and factories — no API endpoints yet.
+
+**Schema:**
+
+| Table | Key columns | Notes |
+|---|---|---|
+| `users` | `role` (string, default `rep`) | Added to existing migration. Cast to `UserRole` enum. |
+| `leads` | `name`, `email`, `phone`, `company` (nullable), `source`, `status` (default `new`), `expected_value` (decimal 12,2), `assigned_to` (nullable FK → users) | Three individual indexes on `status`, `source`, `assigned_to`. |
+| `activities` | `lead_id` (FK, cascade delete), `user_id` (FK), `type`, `body` (text), `occurred_at` | Composite index on `(lead_id, occurred_at)`. |
+
+**Design decisions:**
+
+- **`decimal(12,2)` not `float`** for `expected_value` — floats cause rounding errors in currency arithmetic (e.g. `0.1 + 0.2 ≠ 0.3`). `decimal` is stored as an exact fixed-point value in MySQL.
+- **String columns + PHP enum casts** instead of MySQL `ENUM` type — MySQL `ENUM` requires a migration to add new values. Storing as `string` with a PHP backed enum (`LeadStatus`, `LeadSource`, `ActivityType`, `UserRole`) keeps validation in the application layer and makes schema changes non-destructive.
+- **`nullOnDelete`** on `assigned_to` — if a rep user is deleted, their leads become unassigned rather than deleted.
+- **`cascadeOnDelete`** on `activities.lead_id` — if a lead is removed, its activities are meaningless and should be cleaned up.
+- **Composite index `(lead_id, occurred_at)`** — optimizes the most common query pattern: fetching a lead's activity timeline in chronological order.
+- **Individual indexes** on `status`, `source`, `assigned_to` — these columns are used heavily for filtering (`GET /api/leads?status=...`) and for the rep-performance aggregate report.
+- **Lead email is not unique** — the same person can appear as multiple leads from different sources/campaigns. Uniqueness is a business decision, not a data constraint here.
+

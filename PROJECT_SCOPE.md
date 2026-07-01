@@ -80,6 +80,10 @@ manually — it is not part of the graded deliverable, it consumes the same API.
 - Sanctum is used in **token mode** (not SPA cookie mode) for the JSON API. `statefulApi()` middleware is enabled so the bonus Blade UI can also authenticate via session cookies.
 - MySQL 8.4 is used via Laravel Sail (Docker). DB name: `mini_crm`, user: `sail`, password: `password`.
 - PHP 8.2 runtime is pinned in `docker-compose.yml` (not the default 8.5).
+- Lead `email` is **not unique** — the same contact can exist as multiple leads from different sources/campaigns.
+- `phone` is stored as a free-form string (E.164 format in factories). No regex validation at schema level.
+- Enum columns are stored as `string` (not MySQL `ENUM`) to avoid schema-level migrations when adding new values. Validation is done at the application layer via PHP backed enums.
+- Deleting a rep nullifies `assigned_to` on their leads (`nullOnDelete`). Deleting a lead cascades to its activities (`cascadeOnDelete`).
 
 ## 9. Trade-offs (fill in during build)
 - _(update this section with the 1 deliberate trade-off made)_
