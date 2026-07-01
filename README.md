@@ -272,3 +272,73 @@ curl -X POST http://localhost/api/leads/1/activities \
 
 **Tests (6 passing in this module, 37 total):** Covers rep rejection on assign (403), manager assignment to reps, validation failure for non-reps, rep activity logging on owned leads, rep rejection on other leads, and integration between activity logging and won/lost status transition.
 
+### Phase 6 — Report
+
+**Goal:** Implement an efficient, N+1 free, Cartesian-product free sales representative performance report.
+
+**Endpoints:**
+
+| Method | URI | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/reports/rep-performance` | `auth:sanctum` | Retrieve aggregated performance metrics (scoped if rep) |
+
+**Design & Performance Decisions:**
+
+- **Solving Cartesian Duplication:** Joining both the `leads` table and the `activities` table directly in a flat query causes a Cartesian product multiplier (e.g., a lead with 3 activities duplicates the lead's monetary value 3 times in the `SUM()`). To avoid this, we query aggregates inside isolated subqueries (`lead_stats` grouped by rep and `activity_stats` grouped by rep), and then `LEFT JOIN` those subqueries onto the `users` table.
+- **Role Scoping:** Managers can view performance statistics for all sales representatives, whereas Reps are scoped to only view their own performance statistics at the query builder level using `when($user->isRep(), fn($q) => $q->where('users.id', $user->id))`.
+- **Query Complexity $O(1)$:** The database load scales constantly regardless of the number of reps because aggregation happens database-side in a single execution. We verify this via query log assertions in tests.
+
+**Generated SQL Query:**
+
+```sql
+SELECT 
+    `users`.`id`, 
+    `users`.`name`, 
+    COALESCE(lead_stats.total_leads, 0) as total_leads, 
+    COALESCE(lead_stats.new_count, 0) as new_count, 
+    COALESCE(lead_stats.contacted_count, 0) as contacted_count, 
+    COALESCE(lead_stats.qualified_count, 0) as qualified_count, 
+    COALESCE(lead_stats.won_count, 0) as won_count, 
+    COALESCE(lead_stats.lost_count, 0) as lost_count, 
+    COALESCE(lead_stats.total_expected_value, 0.00) as total_expected_value, 
+    COALESCE(lead_stats.won_expected_value, 0.00) as won_expected_value, 
+    COALESCE(activity_stats.total_activities, 0) as total_activities 
+FROM `users` 
+LEFT JOIN (
+    SELECT 
+        `assigned_to`, 
+        COUNT(*) as total_leads, 
+        SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) as new_count, 
+        SUM(CASE WHEN status = 'contacted' THEN 1 ELSE 0 END) as contacted_count, 
+        SUM(CASE WHEN status = 'qualified' THEN 1 ELSE 0 END) as qualified_count, 
+        SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as won_count, 
+        SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as lost_count, 
+        SUM(expected_value) as total_expected_value, 
+        SUM(CASE WHEN status = 'won' THEN expected_value ELSE 0 END) as won_expected_value 
+    FROM `leads` 
+    GROUP BY `assigned_to`
+) as `lead_stats` ON `lead_stats`.`assigned_to` = `users`.`id` 
+LEFT JOIN (
+    SELECT 
+        `leads`.`assigned_to`, 
+        COUNT(activities.id) as total_activities 
+    FROM `activities` 
+    INNER JOIN `leads` ON `activities`.`lead_id` = `leads`.`id` 
+    GROUP BY `leads`.`assigned_to`
+) as `activity_stats` ON `activity_stats`.`assigned_to` = `users`.`id` 
+WHERE `users`.`role` = 'rep' 
+  /* AND `users`.`id` = ? (when logged-in user is a rep) */
+```
+
+**Example curl command:**
+
+```bash
+# Retrieve Rep Performance report
+curl -X GET http://localhost/api/reports/rep-performance \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+**Tests (3 passing in this module, 40 total):** Verifies accurate summation/grouping, manager vs rep visibility scoping, and validates that query count remains flat/constant ($O(1)$ complexity) when scale increases from 2 reps to 7 reps.
+
+
