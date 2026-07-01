@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\LeadController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login'])->name('api.login');
@@ -8,4 +9,10 @@ Route::post('/login', [AuthController::class, 'login'])->name('api.login');
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('api.logout');
     Route::get('/me', [AuthController::class, 'me'])->name('api.me');
+
+    // Leads CRUD
+    Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
+    Route::post('/leads', [LeadController::class, 'store'])->name('leads.store');
+    Route::get('/leads/{lead}', [LeadController::class, 'show'])->name('leads.show');
+    Route::patch('/leads/{lead}', [LeadController::class, 'update'])->name('leads.update');
 });

@@ -71,4 +71,20 @@ class User extends Authenticatable
     {
         return $this->hasMany(Activity::class);
     }
+
+    /**
+     * Check if the user is a manager.
+     */
+    public function isManager(): bool
+    {
+        return $this->role === UserRole::Manager;
+    }
+
+    /**
+     * Check if the user is a rep.
+     */
+    public function isRep(): bool
+    {
+        return $this->role === UserRole::Rep;
+    }
 }

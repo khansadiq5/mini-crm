@@ -32,6 +32,15 @@ class Lead extends Model
     ];
 
     /**
+     * The model's default values for attributes.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'status' => 'new',
+    ];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

@@ -184,3 +184,53 @@ curl -X POST http://localhost/api/logout \
 - **Testable in isolation** — the 11 policy tests exercise `$user->can()` directly without HTTP overhead, making them fast and focused.
 
 **Tests (11 passing):** viewAny (manager + rep), view (manager any, rep own, rep denied other, rep denied unassigned), create (both roles), update (manager any, rep own, rep denied), assign (manager allowed, rep denied).
+
+### Phase 4 — Leads CRUD
+
+**Goal:** Implement Leads API endpoints with scoping, filtering, searching, sorting, pagination, and business validation rules.
+
+**Endpoints:**
+
+| Method | URI | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/leads` | `auth:sanctum` | List/Filter/Search leads (scoped to rep if not manager) |
+| `POST` | `/api/leads` | `auth:sanctum` | Create a lead |
+| `GET` | `/api/leads/{lead}` | `auth:sanctum` | View a single lead (eager loads activities & assignedRep) |
+| `PATCH` | `/api/leads/{lead}` | `auth:sanctum` | Update a lead (enforces Won/Lost activity constraint) |
+
+**Design & Authorization Decisions:**
+
+- **403 vs 404 Decision:** When a rep attempts to access a lead assigned to another rep, the system returns a `403 Forbidden` response. While a `404 Not Found` can be used to completely hide existence, the explicit `403` response is chosen because it accurately represents the authorization boundary, aligns naturally with Laravel's standard policy exception handling, and differentiates a resource-permission failure from a truly missing resource.
+- **Query Scoping:** For the list endpoint, query-level scoping `when($user->isRep(), fn($q) => $q->where('assigned_to', $user->id))` ensures reps only fetch their own leads at the database level, preventing memory overhead or N+1 queries.
+- **Won/Lost Constraint:** Updating status to `won` or `lost` checks `$lead->activities()->count() === 0`. If no activities are present, the request is rejected with `422 Unprocessable Content` to enforce logging prior interaction.
+- **JSON Resources:** Responses are transformed via `LeadResource`, `UserResource`, and `ActivityResource` to maintain encapsulation, avoid leaking internal attributes (like password hashes), and normalize timestamps to ISO 8601 format.
+
+**Example curl commands:**
+
+```bash
+# List Leads (with pagination, status filter, search, and sorting)
+curl -X GET "http://localhost/api/leads?status=new&search=google&sort=expected_value&direction=desc&per_page=10" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+
+# Create a Lead
+curl -X POST http://localhost/api/leads \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"name": "Bruce Wayne", "email": "bruce@waynecorp.com", "phone": "+15550199", "source": "referral", "expected_value": 50000.00}'
+
+# View a Lead (eager loads activities and assigned rep)
+curl -X GET http://localhost/api/leads/1 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+
+# Update a Lead (PATCH)
+curl -X PATCH http://localhost/api/leads/1 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"company": "Wayne Enterprises", "status": "contacted"}'
+```
+
+**Tests (11 passing in this module, 31 total):** Correctly checks rep isolation (403), manager access (200), pagination structures, search on multi-column whereAny, filtering, multi-direction sorting, validated creations, and won/lost constraints.
