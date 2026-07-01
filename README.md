@@ -122,3 +122,43 @@ _(to be filled in during final review)_
 - **Individual indexes** on `status`, `source`, `assigned_to` — these columns are used heavily for filtering (`GET /api/leads?status=...`) and for the rep-performance aggregate report.
 - **Lead email is not unique** — the same person can appear as multiple leads from different sources/campaigns. Uniqueness is a business decision, not a data constraint here.
 
+### Phase 2 — Auth
+
+**Goal:** Implement Sanctum-based API token authentication.
+
+**Endpoints:**
+
+| Method | URI | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/login` | Public | Accepts `email` + `password`, returns Sanctum token + user info |
+| `POST` | `/api/logout` | `auth:sanctum` | Revokes the current API token |
+| `GET` | `/api/me` | `auth:sanctum` | Returns the authenticated user |
+
+**Implementation details:**
+
+- `LoginRequest` Form Request class handles validation (not inline `validate()`).
+- Invalid credentials throw a `ValidationException` → 422 with `"The provided credentials are incorrect."` on the `email` field.
+- Token name is `api-token` — each login creates a new token (user can have multiple active sessions).
+- `AuthController` lives under `App\Http\Controllers\Api` namespace for clear API separation.
+
+**Example curl commands:**
+
+```bash
+# Login
+curl -X POST http://localhost/api/login \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"email": "user@example.com", "password": "password"}'
+
+# Use the token
+curl http://localhost/api/me \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+
+# Logout
+curl -X POST http://localhost/api/logout \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+**Tests (7 passing):** successful login, wrong password → 422, non-existent email → 422, missing fields → 422, /me returns user, unauthenticated → 401, logout revokes token.
