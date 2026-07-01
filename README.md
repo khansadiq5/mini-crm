@@ -388,4 +388,29 @@ Returns standard message format:
 
 **Tests (1 passing in this module, 41 total):** Verifies that exceptions on API routes return clean JSON formats containing a `message` parameter on 404, bypassing standard HTML views.
 
+### Phase 8 — Testing
+
+**Goal:** Assure quality of all requirements by checking that the Pest test suite executes cleanly and covers the whole project scope.
+
+**Scope of Covered Tests:**
+
+- **Authentication (`AuthTest.php`):** Validates logging in (success/failure scenarios), fetching own profile (`/api/me`), token revocation on logout, and rejecting unauthenticated requests.
+- **Lead Visibility Policy (`LeadPolicyTest.php`):** Verifies role-based view/create/update/assign policies directly (managers can view/edit everything, reps can only view/edit their own assigned leads, reps cannot assign leads).
+- **Leads CRUD (`LeadTest.php`):** Verifies rep isolation, manager override, full filtering/search/sort parameters, validation of input values, won/lost transition barriers (and their integration with activity logging), and JSON exception handling (e.g. 404 formatting).
+- **Assignments & Activities (`LeadTest.php`):** Validates manager-only assign permissions, validation checks (cannot assign to managers), and rep activity logging authorization.
+- **Report Endpoint (`ReportTest.php`):** Validates calculation accuracy (sum, status group count, total expected vs won expected, total activities), role scoping, and performance O(1) query complexity.
+
+## Running Tests
+
+To run the full suite using Pest, run the following Artisan command:
+
+```bash
+# If running locally
+php artisan test
+
+# If running within Laravel Sail
+./vendor/bin/sail test
+```
+
+
 
