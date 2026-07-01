@@ -15,4 +15,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/leads', [LeadController::class, 'store'])->name('leads.store');
     Route::get('/leads/{lead}', [LeadController::class, 'show'])->name('leads.show');
     Route::patch('/leads/{lead}', [LeadController::class, 'update'])->name('leads.update');
+    Route::post('/leads/{lead}/assign', [LeadController::class, 'assign'])->name('leads.assign');
+    Route::post('/leads/{lead}/activities', [LeadController::class, 'logActivity'])->name('leads.activities');
 });

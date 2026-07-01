@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\LeadStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AssignLeadRequest;
+use App\Http\Requests\StoreActivityRequest;
 use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
+use App\Http\Resources\ActivityResource;
 use App\Http\Resources\LeadResource;
 use App\Models\Lead;
 use Illuminate\Http\JsonResponse;
@@ -87,5 +90,34 @@ class LeadController extends Controller
         $lead->update($request->validated());
 
         return new LeadResource($lead);
+    }
+
+    /**
+     * Assign a lead to a specific rep.
+     */
+    public function assign(AssignLeadRequest $request, Lead $lead): LeadResource
+    {
+        $lead->update([
+            'assigned_to' => $request->input('rep_id'),
+        ]);
+
+        return new LeadResource($lead->load('assignedRep'));
+    }
+
+    /**
+     * Log a new activity against a lead.
+     */
+    public function logActivity(StoreActivityRequest $request, Lead $lead): JsonResponse
+    {
+        $activity = $lead->activities()->create([
+            'user_id' => $request->user()->id,
+            'type' => $request->input('type'),
+            'body' => $request->input('body'),
+            'occurred_at' => $request->input('occurred_at'),
+        ]);
+
+        return (new ActivityResource($activity->load('user')))
+            ->response()
+            ->setStatusCode(201);
     }
 }

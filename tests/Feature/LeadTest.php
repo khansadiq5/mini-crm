@@ -173,3 +173,100 @@ it('allows status transition to won or lost with activities present', function (
     $response->assertOk()
         ->assertJsonPath('data.status', 'won');
 });
+
+it('denies rep from calling assign', function () {
+    $rep = User::factory()->rep()->create();
+    $otherRep = User::factory()->rep()->create();
+    $lead = Lead::factory()->assignedTo($rep)->create();
+
+    $response = $this->actingAs($rep, 'sanctum')
+        ->postJson("/api/leads/{$lead->id}/assign", [
+            'rep_id' => $otherRep->id,
+        ]);
+
+    $response->assertStatus(403);
+});
+
+it('allows manager to assign a lead to a valid rep', function () {
+    $manager = User::factory()->manager()->create();
+    $rep = User::factory()->rep()->create();
+    $lead = Lead::factory()->create();
+
+    $response = $this->actingAs($manager, 'sanctum')
+        ->postJson("/api/leads/{$lead->id}/assign", [
+            'rep_id' => $rep->id,
+        ]);
+
+    $response->assertOk()
+        ->assertJsonPath('data.assigned_to', $rep->id);
+});
+
+it('fails validation when assigning lead to a non-rep user', function () {
+    $manager = User::factory()->manager()->create();
+    $otherManager = User::factory()->manager()->create();
+    $lead = Lead::factory()->create();
+
+    $response = $this->actingAs($manager, 'sanctum')
+        ->postJson("/api/leads/{$lead->id}/assign", [
+            'rep_id' => $otherManager->id,
+        ]);
+
+    $response->assertStatus(422)
+        ->assertJsonValidationErrors(['rep_id']);
+});
+
+it('allows a rep to log an activity on their own lead', function () {
+    $rep = User::factory()->rep()->create();
+    $lead = Lead::factory()->assignedTo($rep)->create();
+
+    $response = $this->actingAs($rep, 'sanctum')
+        ->postJson("/api/leads/{$lead->id}/activities", [
+            'type' => 'call',
+            'body' => 'Called client, discussed project scoping.',
+            'occurred_at' => now()->toIso8601String(),
+        ]);
+
+    $response->assertStatus(201)
+        ->assertJsonPath('data.type', 'call')
+        ->assertJsonPath('data.body', 'Called client, discussed project scoping.');
+});
+
+it('denies a rep from logging an activity on someone else lead', function () {
+    $rep = User::factory()->rep()->create();
+    $otherRep = User::factory()->rep()->create();
+    $lead = Lead::factory()->assignedTo($otherRep)->create();
+
+    $response = $this->actingAs($rep, 'sanctum')
+        ->postJson("/api/leads/{$lead->id}/activities", [
+            'type' => 'call',
+            'body' => 'Spam call.',
+            'occurred_at' => now()->toIso8601String(),
+        ]);
+
+    $response->assertStatus(403);
+});
+
+it('allows status transition to won after rep logs an activity', function () {
+    $rep = User::factory()->rep()->create();
+    $lead = Lead::factory()->assignedTo($rep)->create(['status' => LeadStatus::New]);
+
+    // First try transition to won, which should fail because there are 0 activities
+    $this->actingAs($rep, 'sanctum')
+        ->patchJson("/api/leads/{$lead->id}", ['status' => 'won'])
+        ->assertStatus(422);
+
+    // Now log an activity
+    $this->actingAs($rep, 'sanctum')
+        ->postJson("/api/leads/{$lead->id}/activities", [
+            'type' => 'email',
+            'body' => 'Follow up email sent.',
+            'occurred_at' => now()->toIso8601String(),
+        ])
+        ->assertStatus(201);
+
+    // Finally try transition to won again, which should now succeed
+    $this->actingAs($rep, 'sanctum')
+        ->patchJson("/api/leads/{$lead->id}", ['status' => 'won'])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'won');
+});

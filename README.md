@@ -234,3 +234,41 @@ curl -X PATCH http://localhost/api/leads/1 \
 ```
 
 **Tests (11 passing in this module, 31 total):** Correctly checks rep isolation (403), manager access (200), pagination structures, search on multi-column whereAny, filtering, multi-direction sorting, validated creations, and won/lost constraints.
+
+### Phase 5 — Assign & Activities
+
+**Goal:** Implement assigning leads to reps and logging activities against leads.
+
+**Endpoints:**
+
+| Method | URI | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/leads/{lead}/assign` | `auth:sanctum` | Assign lead to a representative (Manager only) |
+| `POST` | `/api/leads/{lead}/activities` | `auth:sanctum` | Log an activity (call, email, meeting, note) against a lead |
+
+**Design & Validation Decisions:**
+
+- **Assign Policy and Validation:** Authorized only for managers via `LeadPolicy@assign`. `AssignLeadRequest` validates that the `rep_id` is an integer, exists in the `users` table, and specifically has the role of `rep` (cannot assign leads to managers).
+- **Log Activity Policy and Validation:** Anyone who has read access to the lead (Managers, or the assigned Rep) is allowed to log activities against it. `StoreActivityRequest` validates `type` (against `ActivityType` enum), `body` (string), and `occurred_at` (valid datetime string).
+- **Created Activity Payload:** The authenticated user's ID is automatically stored as `user_id` when creating the activity. The endpoint returns `201 Created` with the loaded `ActivityResource` including user metadata.
+
+**Example curl commands:**
+
+```bash
+# Assign Lead (Manager only)
+curl -X POST http://localhost/api/leads/1/assign \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"rep_id": 2}'
+
+# Log Activity against Lead
+curl -X POST http://localhost/api/leads/1/activities \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"type": "call", "body": "Spoke to lead, they requested pricing packages.", "occurred_at": "2026-07-02T01:30:00Z"}'
+```
+
+**Tests (6 passing in this module, 37 total):** Covers rep rejection on assign (403), manager assignment to reps, validation failure for non-reps, rep activity logging on owned leads, rep rejection on other leads, and integration between activity logging and won/lost status transition.
+
