@@ -10,6 +10,7 @@ use App\Http\Requests\StoreLeadRequest;
 use App\Http\Requests\UpdateLeadRequest;
 use App\Http\Resources\ActivityResource;
 use App\Http\Resources\LeadResource;
+use App\Jobs\NotifyRepOfLeadAssignment;
 use App\Models\Lead;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -100,6 +101,8 @@ class LeadController extends Controller
         $lead->update([
             'assigned_to' => $request->input('rep_id'),
         ]);
+
+        NotifyRepOfLeadAssignment::dispatch($request->input('rep_id'), $lead->id);
 
         return new LeadResource($lead->load('assignedRep'));
     }

@@ -436,5 +436,29 @@ php artisan test
 ./vendor/bin/sail test
 ```
 
+## Bonus Features
 
+### Phase 11 — Queued Job on Lead Assignment (Option A)
+
+**Goal:** Dispatch a `NotifyRepOfLeadAssignment` queued job whenever a lead is assigned or reassigned to a rep, using the database queue driver.
+
+**What was done:**
+
+- Created `App\Jobs\NotifyRepOfLeadAssignment` — a queued job (`ShouldQueue`) that accepts `repId` and `leadId` via constructor property promotion.
+- The job's `handle()` method logs `"Rep {id} notified about lead {id}"` via Laravel's logger. No real email/notification is sent — this is a placeholder for future notification channels.
+- The job includes exponential backoff (`[1, 5, 10]` seconds) and a `failed()` handler for production resilience per queue best practices.
+- Modified `LeadController@assign` to dispatch the job after updating the lead's `assigned_to` field. This covers both initial assignments and reassignments.
+- The `.env` file already configures `QUEUE_CONNECTION=database`, and the `jobs` table migration was already present from the Laravel bootstrap.
+
+**Why Option A over B or C:**
+
+- **Over Option B (Event + Listener):** Option A introduces the queue subsystem — a production-critical infrastructure concern — while Option B only exercises the event/listener pattern which is simpler to add later. Queued jobs are harder to retrofit correctly (backoff, failure handling, `retry_after` tuning) and worth establishing the pattern early.
+- **Over Option C (Cache with Invalidation):** Caching is a performance optimization that only makes sense under measured load. Adding cache invalidation prematurely risks serving stale data without a demonstrated performance need. Option A provides immediate behavioral value (asynchronous notifications) that directly supports the business use case.
+
+**Tests (4 passing in this module, 45 total):**
+
+- Job dispatched with correct `repId` and `leadId` on initial assignment.
+- Job dispatched with correct data on reassignment (lead already assigned to a different rep).
+- Job NOT dispatched when assignment validation fails (e.g., assigning to a non-rep).
+- Job handler logs the expected notification message (unit-level test with `Log::shouldReceive()`).
 
