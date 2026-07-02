@@ -45,12 +45,26 @@ docker run --rm \
 # 5. Generate application key
 ./vendor/bin/sail artisan key:generate
 
-# 6. Run database migrations
-./vendor/bin/sail artisan migrate
+# 6. Run database migrations and seed data
+./vendor/bin/sail artisan migrate:fresh --seed
 
 # 7. Verify the app is running
 curl http://localhost/up
 ```
+
+### Seeded Credentials
+
+The database seeder generates initial users and mock records for testing:
+
+* **Manager User:**
+  * Email: `manager@minicrm.test`
+  * Password: `password`
+* **Sales Representatives:**
+  * `rep1@minicrm.test` (Password: `password`)
+  * `rep2@minicrm.test` (Password: `password`)
+  * `rep3@minicrm.test` (Password: `password`)
+
+Additionally, ~25 Leads are distributed randomly among the representatives with realistic expected values, and various activities (calls, emails, meetings, notes) are seeded against them.
 
 ### Stopping
 
@@ -399,6 +413,16 @@ Returns standard message format:
 - **Leads CRUD (`LeadTest.php`):** Verifies rep isolation, manager override, full filtering/search/sort parameters, validation of input values, won/lost transition barriers (and their integration with activity logging), and JSON exception handling (e.g. 404 formatting).
 - **Assignments & Activities (`LeadTest.php`):** Validates manager-only assign permissions, validation checks (cannot assign to managers), and rep activity logging authorization.
 - **Report Endpoint (`ReportTest.php`):** Validates calculation accuracy (sum, status group count, total expected vs won expected, total activities), role scoping, and performance O(1) query complexity.
+
+### Phase 9 — Seed Data
+
+**Goal:** Create a reproducible dataset of reps, leads, and activities conforming to business constraints.
+
+**Seeded Objects:**
+
+- **Users:** 1 manager (`manager@minicrm.test`) and 3 reps (`rep1@minicrm.test`, `rep2@minicrm.test`, `rep3@minicrm.test`), all using `password` as password.
+- **Leads:** 25 leads with randomized statuses (new, contacted, qualified, won, lost) and sources, realistic expected value amounts ($1,000 to $75,000), and ~80% assigned to reps.
+- **Activities:** Generates 1 to 4 activities for 60% of normal leads, and guarantees 1 to 4 activities on any lead seeded with the status `won` or `lost` to adhere to Phase 4 transition constraints.
 
 ## Running Tests
 
