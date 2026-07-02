@@ -85,5 +85,9 @@ manually — it is not part of the graded deliverable, it consumes the same API.
 - Enum columns are stored as `string` (not MySQL `ENUM`) to avoid schema-level migrations when adding new values. Validation is done at the application layer via PHP backed enums.
 - Deleting a rep nullifies `assigned_to` on their leads (`nullOnDelete`). Deleting a lead cascades to its activities (`cascadeOnDelete`).
 
-## 9. Trade-offs (fill in during build)
-- _(update this section with the 1 deliberate trade-off made)_
+## 9. Trade-offs (filled in during build)
+- **403 Forbidden over 404 Not Found** for unauthorized lead access — `403` is more debuggable for internal API consumers and aligns naturally with Laravel's `Gate::authorize()` flow. A `404` would hide resource existence (more secure in adversarial contexts) but adds complexity without proportional benefit in a trusted, token-authenticated internal CRM.
+- **Log-only queued job** instead of real email notifications — the queue infrastructure (backoff, failure handling, `retry_after`) is established and production-ready; swapping `Log::info()` for a real notification channel is a one-line change.
+- **No API versioning** — routes are at `/api/` instead of `/api/v1/`. Acceptable for a first release, but would need versioning before a second iteration ships.
+- **`LIKE %term%` search** over full-text index — simple to implement and adequate for the expected data volume, but would need Laravel Scout or a full-text index for larger datasets.
+

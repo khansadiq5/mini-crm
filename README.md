@@ -2,18 +2,19 @@
 
 A backend-first Customer Relationship Management JSON API for sales teams, built with Laravel 12 and PHP 8.2+.
 
-Sales reps work **Leads** through a pipeline of statuses, log **Activities** (calls, emails, meetings, notes) against them, and managers get aggregate performance reports across all reps. Authentication is handled via [Laravel Sanctum](https://laravel.com/docs/sanctum) API tokens.
+Sales reps work **Leads** through a pipeline of statuses (`new → contacted → qualified → won/lost`), log **Activities** (calls, emails, meetings, notes) against them, and managers get aggregate performance reports across all reps. Authentication is handled via [Laravel Sanctum](https://laravel.com/docs/sanctum) API tokens.
 
 ## Tech Stack
 
-| Layer             | Choice                                 |
-|-------------------|----------------------------------------|
-| Backend framework | Laravel 12                             |
-| Language          | PHP 8.2+                               |
-| Database          | MySQL 8.4 (via Laravel Sail / Docker)  |
-| Auth              | Laravel Sanctum (token-based)          |
-| Testing           | Pest / Laravel Feature Tests           |
-| Local dev         | Laravel Sail (Docker)                  |
+| Layer             | Choice                                |
+|-------------------|---------------------------------------|
+| Backend framework | Laravel 12                            |
+| Language          | PHP 8.2+                              |
+| Database          | MySQL 8.4 (via Laravel Sail / Docker) |
+| Auth              | Laravel Sanctum v4 (token-based)      |
+| Queue             | Database driver (`jobs` table)        |
+| Testing           | Pest v3 / Laravel Feature Tests       |
+| Local dev         | Laravel Sail (Docker)                 |
 
 ## Setup
 
@@ -54,17 +55,14 @@ curl http://localhost/up
 
 ### Seeded Credentials
 
-The database seeder generates initial users and mock records for testing:
+| User            | Email                  | Password   | Role    |
+|-----------------|------------------------|------------|---------|
+| Manager         | `manager@minicrm.test` | `password` | manager |
+| Sales Rep 1     | `rep1@minicrm.test`    | `password` | rep     |
+| Sales Rep 2     | `rep2@minicrm.test`    | `password` | rep     |
+| Sales Rep 3     | `rep3@minicrm.test`    | `password` | rep     |
 
-* **Manager User:**
-  * Email: `manager@minicrm.test`
-  * Password: `password`
-* **Sales Representatives:**
-  * `rep1@minicrm.test` (Password: `password`)
-  * `rep2@minicrm.test` (Password: `password`)
-  * `rep3@minicrm.test` (Password: `password`)
-
-Additionally, ~25 Leads are distributed randomly among the representatives with realistic expected values, and various activities (calls, emails, meetings, notes) are seeded against them.
+Additionally, ~25 Leads are distributed randomly among the representatives with realistic expected values ($1K–$75K), and various activities (calls, emails, meetings, notes) are seeded against them.
 
 ### Stopping
 
@@ -72,26 +70,101 @@ Additionally, ~25 Leads are distributed randomly among the representatives with 
 ./vendor/bin/sail down
 ```
 
-### Running Tests
+## Running Tests
 
 ```bash
+# Via Sail
 ./vendor/bin/sail artisan test --compact
+
+# Or locally (if PHP 8.2+ and MySQL are available)
+php artisan test --compact
 ```
+
+**Current status: 45 tests passing, 139 assertions.**
+
+## API Endpoints
+
+All endpoints (except login) require an `Authorization: Bearer <token>` header.
+
+| Method   | URI                             | Auth           | Description                                    |
+|----------|---------------------------------|----------------|------------------------------------------------|
+| `POST`   | `/api/login`                    | Public         | Authenticate, returns Sanctum token            |
+| `POST`   | `/api/logout`                   | `auth:sanctum` | Revoke the current token                       |
+| `GET`    | `/api/me`                       | `auth:sanctum` | Return the authenticated user                  |
+| `GET`    | `/api/leads`                    | `auth:sanctum` | List leads (filter, search, sort, pagination)  |
+| `POST`   | `/api/leads`                    | `auth:sanctum` | Create a new lead                              |
+| `GET`    | `/api/leads/{lead}`             | `auth:sanctum` | View lead with activities & assigned rep       |
+| `PATCH`  | `/api/leads/{lead}`             | `auth:sanctum` | Update a lead (enforces won/lost rule)         |
+| `POST`   | `/api/leads/{lead}/assign`      | `auth:sanctum` | Assign lead to a rep (Manager only)            |
+| `POST`   | `/api/leads/{lead}/activities`  | `auth:sanctum` | Log an activity against a lead                 |
+| `GET`    | `/api/reports/rep-performance`  | `auth:sanctum` | Aggregated rep performance metrics             |
+
+### Query Parameters for `GET /api/leads`
+
+| Parameter     | Example                 | Description                             |
+|---------------|-------------------------|-----------------------------------------|
+| `status`      | `?status=new`           | Filter by lead status enum              |
+| `source`      | `?source=referral`      | Filter by lead source enum              |
+| `assigned_to` | `?assigned_to=3`        | Filter by assigned rep ID               |
+| `search`      | `?search=google`        | Full-text search on name, email, company|
+| `sort`        | `?sort=expected_value`  | Sort column (default: `created_at`)     |
+| `direction`   | `?direction=asc`        | Sort direction (default: `desc`)        |
+| `per_page`    | `?per_page=25`          | Pagination size (max 100, default 15)   |
 
 ## Assumptions
 
-- No public user registration — users are seeded.
-- No file uploads / attachments on activities.
-- No real email/SMS notifications — queued jobs just log the action.
-- Multi-tenancy is documented as a design note, not implemented.
+- **No public registration** — users are seeded via `DatabaseSeeder`. In production, an admin panel or CLI command would manage user creation.
+- **No file uploads / attachments** on activities — activities are text-only records.
+- **No real email/SMS notifications** — queued jobs just log the action via Laravel's logger. The job infrastructure is in place for when real notification channels are added.
+- **Multi-tenancy** is not implemented — documented as a design note. The current architecture could support it via a `team_id` column on users/leads with a global scope.
+- **Sanctum token mode** (not SPA cookie mode) is used for the JSON API. `statefulApi()` middleware is enabled for potential future Blade UI session auth.
+- **Lead email is not unique** — the same contact can exist as multiple leads from different sources/campaigns.
+- **Enum columns use `string` storage** (not MySQL `ENUM`) — avoids destructive migrations when adding new enum values. Validation is done at the application layer via PHP backed enums.
+- **Phone is free-form string** — no regex validation at schema level; format is enforced by convention (E.164 in factories).
 
-## Trade-offs
+## One Deliberate Trade-off
 
-_(to be filled in during build)_
+**403 Forbidden vs 404 Not Found for unauthorized lead access.**
+
+When a rep tries to access a lead assigned to another rep, the system returns `403 Forbidden` instead of `404 Not Found`. A `404` would hide the lead's existence entirely (more secure in adversarial contexts), but `403` was chosen because:
+
+1. **Clarity for API consumers** — a `403` clearly tells the client "the resource exists but you lack permission," which is more debuggable than a `404` that could mean either "doesn't exist" or "you can't see it."
+2. **Aligns with Laravel's policy system** — `Gate::authorize()` naturally throws `AuthorizationException` → `403`. Forcing a `404` would require extra code to intercept and re-throw, adding complexity without proportional benefit in a trusted, token-authenticated internal CRM.
+3. **Internal tool context** — this is a sales team CRM, not a public-facing API. The attack surface where information leakage matters (e.g., user enumeration) is minimal compared to a public-facing system.
 
 ## What I'd Do With More Time
 
-_(to be filled in during final review)_
+- **Soft deletes** on leads — currently leads are hard-deleted (cascading to activities). Soft deletes would allow recovery and audit trails.
+- **Activity timeline pagination** — the `show` endpoint eager-loads all activities. For leads with hundreds of activities, this should be a separate paginated endpoint.
+- **Rate limiting** — add `throttle` middleware to auth and API routes to prevent brute-force login attempts and API abuse.
+- **API versioning** — prefix routes under `/api/v1/` to allow non-breaking evolution of the API surface.
+- **Real notification channels** — swap the log-only `NotifyRepOfLeadAssignment` job for actual email/Slack notifications using Laravel Notifications.
+- **OpenAPI / Swagger documentation** — auto-generate API docs from the route definitions and Form Requests.
+- **Lead deletion endpoint** — `DELETE /api/leads/{lead}` with soft-delete support and manager-only authorization.
+- **Search optimization** — replace `LIKE %term%` with a full-text index or Laravel Scout for better search performance at scale.
+
+## Bonus Features
+
+### Phase 11 — Queued Job on Lead Assignment (Option A)
+
+**Goal:** Dispatch a `NotifyRepOfLeadAssignment` queued job whenever a lead is assigned or reassigned to a rep, using the database queue driver.
+
+**What was done:**
+
+- Created `App\Jobs\NotifyRepOfLeadAssignment` — a queued job (`ShouldQueue`) that accepts `repId` and `leadId` via constructor property promotion.
+- The job's `handle()` method logs `"Rep {id} notified about lead {id}"` via Laravel's logger. No real email/notification is sent — this is a placeholder for future notification channels.
+- The job includes exponential backoff (`[1, 5, 10]` seconds) and a `failed()` handler for production resilience per queue best practices.
+- Modified `LeadController@assign` to dispatch the job after updating the lead's `assigned_to` field. This covers both initial assignments and reassignments.
+- The `.env` file already configures `QUEUE_CONNECTION=database`, and the `jobs` table migration was already present from the Laravel bootstrap.
+
+**Why Option A over B or C:**
+
+- **Over Option B (Event + Listener):** Option A introduces the queue subsystem — a production-critical infrastructure concern — while Option B only exercises the event/listener pattern which is simpler to add later. Queued jobs are harder to retrofit correctly (backoff, failure handling, `retry_after` tuning) and worth establishing the pattern early.
+- **Over Option C (Cache with Invalidation):** Caching is a performance optimization that only makes sense under measured load. Adding cache invalidation prematurely risks serving stale data without a demonstrated performance need. Option A provides immediate behavioral value (asynchronous notifications) that directly supports the business use case.
+
+**Tests (4 passing):** Job dispatched on assignment, job dispatched on reassignment, job NOT dispatched on validation failure, job handler logs the expected message.
+
+---
 
 ## Build Log
 
@@ -155,26 +228,6 @@ _(to be filled in during final review)_
 - Token name is `api-token` — each login creates a new token (user can have multiple active sessions).
 - `AuthController` lives under `App\Http\Controllers\Api` namespace for clear API separation.
 
-**Example curl commands:**
-
-```bash
-# Login
-curl -X POST http://localhost/api/login \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d '{"email": "user@example.com", "password": "password"}'
-
-# Use the token
-curl http://localhost/api/me \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Accept: application/json"
-
-# Logout
-curl -X POST http://localhost/api/logout \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Accept: application/json"
-```
-
 **Tests (7 passing):** successful login, wrong password → 422, non-existent email → 422, missing fields → 422, /me returns user, unauthenticated → 401, logout revokes token.
 
 ### Phase 3 — Authorization
@@ -203,262 +256,103 @@ curl -X POST http://localhost/api/logout \
 
 **Goal:** Implement Leads API endpoints with scoping, filtering, searching, sorting, pagination, and business validation rules.
 
-**Endpoints:**
-
-| Method | URI | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/leads` | `auth:sanctum` | List/Filter/Search leads (scoped to rep if not manager) |
-| `POST` | `/api/leads` | `auth:sanctum` | Create a lead |
-| `GET` | `/api/leads/{lead}` | `auth:sanctum` | View a single lead (eager loads activities & assignedRep) |
-| `PATCH` | `/api/leads/{lead}` | `auth:sanctum` | Update a lead (enforces Won/Lost activity constraint) |
-
 **Design & Authorization Decisions:**
 
-- **403 vs 404 Decision:** When a rep attempts to access a lead assigned to another rep, the system returns a `403 Forbidden` response. While a `404 Not Found` can be used to completely hide existence, the explicit `403` response is chosen because it accurately represents the authorization boundary, aligns naturally with Laravel's standard policy exception handling, and differentiates a resource-permission failure from a truly missing resource.
-- **Query Scoping:** For the list endpoint, query-level scoping `when($user->isRep(), fn($q) => $q->where('assigned_to', $user->id))` ensures reps only fetch their own leads at the database level, preventing memory overhead or N+1 queries.
-- **Won/Lost Constraint:** Updating status to `won` or `lost` checks `$lead->activities()->count() === 0`. If no activities are present, the request is rejected with `422 Unprocessable Content` to enforce logging prior interaction.
-- **JSON Resources:** Responses are transformed via `LeadResource`, `UserResource`, and `ActivityResource` to maintain encapsulation, avoid leaking internal attributes (like password hashes), and normalize timestamps to ISO 8601 format.
+- **403 vs 404 Decision:** Explicit `403` response for unauthorized access (see "One Deliberate Trade-off" above).
+- **Query Scoping:** `when($user->isRep(), ...)` ensures reps only fetch their own leads at the database level.
+- **Won/Lost Constraint:** Updating status to `won` or `lost` requires at least one logged activity, otherwise rejected with `422`.
+- **JSON Resources:** Responses transformed via `LeadResource`, `UserResource`, and `ActivityResource` for encapsulation and ISO 8601 timestamps.
 
-**Example curl commands:**
-
-```bash
-# List Leads (with pagination, status filter, search, and sorting)
-curl -X GET "http://localhost/api/leads?status=new&search=google&sort=expected_value&direction=desc&per_page=10" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Accept: application/json"
-
-# Create a Lead
-curl -X POST http://localhost/api/leads \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d '{"name": "Bruce Wayne", "email": "bruce@waynecorp.com", "phone": "+15550199", "source": "referral", "expected_value": 50000.00}'
-
-# View a Lead (eager loads activities and assigned rep)
-curl -X GET http://localhost/api/leads/1 \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Accept: application/json"
-
-# Update a Lead (PATCH)
-curl -X PATCH http://localhost/api/leads/1 \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d '{"company": "Wayne Enterprises", "status": "contacted"}'
-```
-
-**Tests (11 passing in this module, 31 total):** Correctly checks rep isolation (403), manager access (200), pagination structures, search on multi-column whereAny, filtering, multi-direction sorting, validated creations, and won/lost constraints.
+**Tests (11 passing in this module, 31 total):** Rep isolation (403), manager access (200), pagination, search, filtering, sorting, validated creations, won/lost constraints.
 
 ### Phase 5 — Assign & Activities
 
 **Goal:** Implement assigning leads to reps and logging activities against leads.
 
-**Endpoints:**
-
-| Method | URI | Auth | Description |
-|---|---|---|---|
-| `POST` | `/api/leads/{lead}/assign` | `auth:sanctum` | Assign lead to a representative (Manager only) |
-| `POST` | `/api/leads/{lead}/activities` | `auth:sanctum` | Log an activity (call, email, meeting, note) against a lead |
-
 **Design & Validation Decisions:**
 
-- **Assign Policy and Validation:** Authorized only for managers via `LeadPolicy@assign`. `AssignLeadRequest` validates that the `rep_id` is an integer, exists in the `users` table, and specifically has the role of `rep` (cannot assign leads to managers).
-- **Log Activity Policy and Validation:** Anyone who has read access to the lead (Managers, or the assigned Rep) is allowed to log activities against it. `StoreActivityRequest` validates `type` (against `ActivityType` enum), `body` (string), and `occurred_at` (valid datetime string).
-- **Created Activity Payload:** The authenticated user's ID is automatically stored as `user_id` when creating the activity. The endpoint returns `201 Created` with the loaded `ActivityResource` including user metadata.
+- **Assign Policy and Validation:** Authorized only for managers via `LeadPolicy@assign`. `AssignLeadRequest` validates that the `rep_id` exists and has the role of `rep`.
+- **Log Activity Policy and Validation:** Anyone with read access to the lead can log activities. `StoreActivityRequest` validates `type` (against `ActivityType` enum), `body` (string), and `occurred_at` (datetime).
+- **Created Activity Payload:** The authenticated user's ID is automatically stored as `user_id`. Returns `201 Created`.
 
-**Example curl commands:**
-
-```bash
-# Assign Lead (Manager only)
-curl -X POST http://localhost/api/leads/1/assign \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d '{"rep_id": 2}'
-
-# Log Activity against Lead
-curl -X POST http://localhost/api/leads/1/activities \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d '{"type": "call", "body": "Spoke to lead, they requested pricing packages.", "occurred_at": "2026-07-02T01:30:00Z"}'
-```
-
-**Tests (6 passing in this module, 37 total):** Covers rep rejection on assign (403), manager assignment to reps, validation failure for non-reps, rep activity logging on owned leads, rep rejection on other leads, and integration between activity logging and won/lost status transition.
+**Tests (6 passing in this module, 37 total):** Rep rejection on assign (403), manager assignment, validation failure for non-reps, rep activity logging, rep rejection on other leads, activity + won/lost integration.
 
 ### Phase 6 — Report
 
 **Goal:** Implement an efficient, N+1 free, Cartesian-product free sales representative performance report.
 
-**Endpoints:**
-
-| Method | URI | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/reports/rep-performance` | `auth:sanctum` | Retrieve aggregated performance metrics (scoped if rep) |
-
 **Design & Performance Decisions:**
 
-- **Solving Cartesian Duplication:** Joining both the `leads` table and the `activities` table directly in a flat query causes a Cartesian product multiplier (e.g., a lead with 3 activities duplicates the lead's monetary value 3 times in the `SUM()`). To avoid this, we query aggregates inside isolated subqueries (`lead_stats` grouped by rep and `activity_stats` grouped by rep), and then `LEFT JOIN` those subqueries onto the `users` table.
-- **Role Scoping:** Managers can view performance statistics for all sales representatives, whereas Reps are scoped to only view their own performance statistics at the query builder level using `when($user->isRep(), fn($q) => $q->where('users.id', $user->id))`.
-- **Query Complexity $O(1)$:** The database load scales constantly regardless of the number of reps because aggregation happens database-side in a single execution. We verify this via query log assertions in tests.
+- **Solving Cartesian Duplication:** Aggregates inside isolated subqueries (`lead_stats` and `activity_stats` grouped by rep), then `LEFT JOIN` onto `users`.
+- **Role Scoping:** Managers see all reps; reps see only their own stats.
+- **Query Complexity O(1):** Aggregation happens database-side in a single execution. Verified via query log assertions in tests.
 
-**Generated SQL Query:**
-
-```sql
-SELECT 
-    `users`.`id`, 
-    `users`.`name`, 
-    COALESCE(lead_stats.total_leads, 0) as total_leads, 
-    COALESCE(lead_stats.new_count, 0) as new_count, 
-    COALESCE(lead_stats.contacted_count, 0) as contacted_count, 
-    COALESCE(lead_stats.qualified_count, 0) as qualified_count, 
-    COALESCE(lead_stats.won_count, 0) as won_count, 
-    COALESCE(lead_stats.lost_count, 0) as lost_count, 
-    COALESCE(lead_stats.total_expected_value, 0.00) as total_expected_value, 
-    COALESCE(lead_stats.won_expected_value, 0.00) as won_expected_value, 
-    COALESCE(activity_stats.total_activities, 0) as total_activities 
-FROM `users` 
-LEFT JOIN (
-    SELECT 
-        `assigned_to`, 
-        COUNT(*) as total_leads, 
-        SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) as new_count, 
-        SUM(CASE WHEN status = 'contacted' THEN 1 ELSE 0 END) as contacted_count, 
-        SUM(CASE WHEN status = 'qualified' THEN 1 ELSE 0 END) as qualified_count, 
-        SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as won_count, 
-        SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as lost_count, 
-        SUM(expected_value) as total_expected_value, 
-        SUM(CASE WHEN status = 'won' THEN expected_value ELSE 0 END) as won_expected_value 
-    FROM `leads` 
-    GROUP BY `assigned_to`
-) as `lead_stats` ON `lead_stats`.`assigned_to` = `users`.`id` 
-LEFT JOIN (
-    SELECT 
-        `leads`.`assigned_to`, 
-        COUNT(activities.id) as total_activities 
-    FROM `activities` 
-    INNER JOIN `leads` ON `activities`.`lead_id` = `leads`.`id` 
-    GROUP BY `leads`.`assigned_to`
-) as `activity_stats` ON `activity_stats`.`assigned_to` = `users`.`id` 
-WHERE `users`.`role` = 'rep' 
-  /* AND `users`.`id` = ? (when logged-in user is a rep) */
-```
-
-**Example curl command:**
-
-```bash
-# Retrieve Rep Performance report
-curl -X GET http://localhost/api/reports/rep-performance \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Accept: application/json"
-```
-
-**Tests (3 passing in this module, 40 total):** Verifies accurate summation/grouping, manager vs rep visibility scoping, and validates that query count remains flat/constant ($O(1)$ complexity) when scale increases from 2 reps to 7 reps.
+**Tests (3 passing in this module, 40 total):** Accurate summation/grouping, role scoping, O(1) query complexity.
 
 ### Phase 7 — API Consistency
 
-**Goal:** Standardize response envelopes across all endpoints (reads, updates, logins, logouts, actions, and errors) and configure clean JSON error formats.
+**Goal:** Standardize response envelopes and configure clean JSON error formats.
 
-**Design & Exception Tweaks:**
+- Refactored `AuthController` to use `LoginResource`, `MessageResource`, and `UserResource`.
+- Modified `bootstrap/app.php` with `shouldRenderJsonWhen` so `api/*` routes always return JSON errors.
 
-- **JSON Resource Enforcement:** Refactored `AuthController` (login/logout/me) to route their results through `LoginResource`, `MessageResource`, and `UserResource`.
-- **Enforced JSON Exceptions:** Modified `bootstrap/app.php` exception handler using `shouldRenderJsonWhen` to automatically format all errors occurring on routes starting with `api/*` as JSON, bypassing standard browser HTML rendering even if the `Accept: application/json` header is absent.
-
-**Standard Response Shapes:**
-
-#### 1. Success Response (200 OK / 201 Created)
-Wrapped in a standard `"data"` envelope:
-```json
-{
-  "data": {
-    "id": 1,
-    "name": "Jane Rep",
-    "email": "jane@example.com",
-    "role": "rep"
-  }
-}
-```
-
-#### 2. Validation Error (422 Unprocessable Content)
-Returns the default Laravel validation envelope:
-```json
-{
-  "message": "The rep id field is required.",
-  "errors": {
-    "rep_id": [
-      "The rep id field is required."
-    ]
-  }
-}
-```
-
-#### 3. Authorization / Authentication Failure (403 Forbidden / 401 Unauthorized)
-Returns standard message format:
-```json
-{
-  "message": "This action is unauthorized."
-}
-```
-
-**Tests (1 passing in this module, 41 total):** Verifies that exceptions on API routes return clean JSON formats containing a `message` parameter on 404, bypassing standard HTML views.
+**Tests (1 passing in this module, 41 total):** JSON error format on 404 without Accept header.
 
 ### Phase 8 — Testing
 
-**Goal:** Assure quality of all requirements by checking that the Pest test suite executes cleanly and covers the whole project scope.
+**Goal:** Verify the full Pest test suite covers the whole project scope.
 
-**Scope of Covered Tests:**
-
-- **Authentication (`AuthTest.php`):** Validates logging in (success/failure scenarios), fetching own profile (`/api/me`), token revocation on logout, and rejecting unauthenticated requests.
-- **Lead Visibility Policy (`LeadPolicyTest.php`):** Verifies role-based view/create/update/assign policies directly (managers can view/edit everything, reps can only view/edit their own assigned leads, reps cannot assign leads).
-- **Leads CRUD (`LeadTest.php`):** Verifies rep isolation, manager override, full filtering/search/sort parameters, validation of input values, won/lost transition barriers (and their integration with activity logging), and JSON exception handling (e.g. 404 formatting).
-- **Assignments & Activities (`LeadTest.php`):** Validates manager-only assign permissions, validation checks (cannot assign to managers), and rep activity logging authorization.
-- **Report Endpoint (`ReportTest.php`):** Validates calculation accuracy (sum, status group count, total expected vs won expected, total activities), role scoping, and performance O(1) query complexity.
+**Coverage:** Authentication, lead visibility policy, leads CRUD, assignments & activities, report endpoint — all assertions validated.
 
 ### Phase 9 — Seed Data
 
-**Goal:** Create a reproducible dataset of reps, leads, and activities conforming to business constraints.
+**Goal:** Create a reproducible dataset conforming to business constraints.
 
-**Seeded Objects:**
+- **Users:** 1 manager + 3 reps.
+- **Leads:** 25 leads with randomized statuses/sources, realistic expected values, ~80% assigned.
+- **Activities:** 1–4 activities for 60% of leads; guaranteed activities on `won`/`lost` leads.
 
-- **Users:** 1 manager (`manager@minicrm.test`) and 3 reps (`rep1@minicrm.test`, `rep2@minicrm.test`, `rep3@minicrm.test`), all using `password` as password.
-- **Leads:** 25 leads with randomized statuses (new, contacted, qualified, won, lost) and sources, realistic expected value amounts ($1,000 to $75,000), and ~80% assigned to reps.
-- **Activities:** Generates 1 to 4 activities for 60% of normal leads, and guarantees 1 to 4 activities on any lead seeded with the status `won` or `lost` to adhere to Phase 4 transition constraints.
+### Phase 11 — Queued Job (Bonus)
 
-## Running Tests
+See [Bonus Features](#bonus-features) above.
 
-To run the full suite using Pest, run the following Artisan command:
+### Phase 12 — Final Polish
 
-```bash
-# If running locally
-php artisan test
+**Goal:** Final cleanup, README reorganization, and sanity checks.
 
-# If running within Laravel Sail
-./vendor/bin/sail test
+- Reorganized README into: Overview, Tech Stack, Setup, Running Tests, API Endpoints, Assumptions, Trade-off, What I'd Do With More Time, Bonus Features, Build Log.
+- Updated `PROJECT_SCOPE.md` §8 (Assumptions) and §9 (Trade-offs) with final content.
+- Full code audit: zero dead code, zero unused imports, zero leftover TODOs.
+- Verified `php artisan route:list --path=api` matches PROJECT_SCOPE.md §4 exactly (see appendix).
+- Final test run: **45 tests passing, 139 assertions.**
+
+---
+
+## Appendix: Route List Sanity Check
+
+Output of `php artisan route:list --path=api` (10 routes):
+
+```
+  GET|HEAD   api/leads .......................... leads.index › Api\LeadController@index
+  POST       api/leads .......................... leads.store › Api\LeadController@store
+  GET|HEAD   api/leads/{lead} .................... leads.show › Api\LeadController@show
+  PATCH      api/leads/{lead} ................. leads.update › Api\LeadController@update
+  POST       api/leads/{lead}/activities  leads.activities › Api\LeadController@logActivity
+  POST       api/leads/{lead}/assign ......... leads.assign › Api\LeadController@assign
+  POST       api/login .......................... api.login › Api\AuthController@login
+  POST       api/logout ........................ api.logout › Api\AuthController@logout
+  GET|HEAD   api/me .................................. api.me › Api\AuthController@me
+  GET|HEAD   api/reports/rep-performance  reports.rep-performance › Api\ReportController@repPerformance
 ```
 
-## Bonus Features
+This matches PROJECT_SCOPE.md §4 exactly:
+1. ✅ `POST /api/login`
+2. ✅ `GET /api/leads` (filter, search, sort, pagination)
+3. ✅ `POST /api/leads`
+4. ✅ `GET /api/leads/{id}` (with activities + assigned rep)
+5. ✅ `PATCH /api/leads/{id}`
+6. ✅ `POST /api/leads/{id}/assign` (manager only)
+7. ✅ `POST /api/leads/{id}/activities`
+8. ✅ `GET /api/reports/rep-performance` (single aggregate query, scoped by role)
 
-### Phase 11 — Queued Job on Lead Assignment (Option A)
-
-**Goal:** Dispatch a `NotifyRepOfLeadAssignment` queued job whenever a lead is assigned or reassigned to a rep, using the database queue driver.
-
-**What was done:**
-
-- Created `App\Jobs\NotifyRepOfLeadAssignment` — a queued job (`ShouldQueue`) that accepts `repId` and `leadId` via constructor property promotion.
-- The job's `handle()` method logs `"Rep {id} notified about lead {id}"` via Laravel's logger. No real email/notification is sent — this is a placeholder for future notification channels.
-- The job includes exponential backoff (`[1, 5, 10]` seconds) and a `failed()` handler for production resilience per queue best practices.
-- Modified `LeadController@assign` to dispatch the job after updating the lead's `assigned_to` field. This covers both initial assignments and reassignments.
-- The `.env` file already configures `QUEUE_CONNECTION=database`, and the `jobs` table migration was already present from the Laravel bootstrap.
-
-**Why Option A over B or C:**
-
-- **Over Option B (Event + Listener):** Option A introduces the queue subsystem — a production-critical infrastructure concern — while Option B only exercises the event/listener pattern which is simpler to add later. Queued jobs are harder to retrofit correctly (backoff, failure handling, `retry_after` tuning) and worth establishing the pattern early.
-- **Over Option C (Cache with Invalidation):** Caching is a performance optimization that only makes sense under measured load. Adding cache invalidation prematurely risks serving stale data without a demonstrated performance need. Option A provides immediate behavioral value (asynchronous notifications) that directly supports the business use case.
-
-**Tests (4 passing in this module, 45 total):**
-
-- Job dispatched with correct `repId` and `leadId` on initial assignment.
-- Job dispatched with correct data on reassignment (lead already assigned to a different rep).
-- Job NOT dispatched when assignment validation fails (e.g., assigning to a non-rep).
-- Job handler logs the expected notification message (unit-level test with `Log::shouldReceive()`).
-
+Plus auth support routes: `POST /api/logout`, `GET /api/me`.
