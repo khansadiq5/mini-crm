@@ -25,10 +25,10 @@ class AssignLeadRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'rep_id' => [
+            'rep_name' => [
                 'required',
-                'integer',
-                Rule::exists('users', 'id')->where('role', UserRole::Rep->value),
+                'string',
+                Rule::exists('users', 'name')->where('role', UserRole::Rep->value),
             ],
         ];
     }
@@ -41,7 +41,7 @@ class AssignLeadRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'rep_id.exists' => 'The selected user is not a valid sales representative.',
+            'rep_name.exists' => 'The selected user is not a valid sales representative.',
         ];
     }
 }

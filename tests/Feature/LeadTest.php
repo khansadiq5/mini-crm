@@ -181,7 +181,7 @@ it('denies rep from calling assign', function () {
 
     $response = $this->actingAs($rep, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_id' => $otherRep->id,
+            'rep_name' => $otherRep->name,
         ]);
 
     $response->assertStatus(403);
@@ -194,11 +194,26 @@ it('allows manager to assign a lead to a valid rep', function () {
 
     $response = $this->actingAs($manager, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_id' => $rep->id,
+            'rep_name' => $rep->name,
         ]);
 
     $response->assertOk()
-        ->assertJsonPath('data.assigned_to', $rep->id);
+        ->assertJsonPath('data.assigned_to', $rep->id)
+        ->assertJsonFragment([
+            'type' => 'assigned',
+            'body' => "rep_id: {$rep->id}, rep_name: {$rep->name}",
+        ]);
+
+    $this->assertDatabaseHas('activities', [
+        'lead_id' => $lead->id,
+        'user_id' => $manager->id,
+        'type' => 'assigned',
+        'body' => "rep_id: {$rep->id}, rep_name: {$rep->name}",
+    ]);
+
+    // Check timezone offset in occurred_at (should have +05:30 offset)
+    $activity = Activity::where('lead_id', $lead->id)->first();
+    expect($activity->occurred_at->toIso8601String())->toContain('+05:30');
 });
 
 it('fails validation when assigning lead to a non-rep user', function () {
@@ -208,11 +223,11 @@ it('fails validation when assigning lead to a non-rep user', function () {
 
     $response = $this->actingAs($manager, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_id' => $otherManager->id,
+            'rep_name' => $otherManager->name,
         ]);
 
     $response->assertStatus(422)
-        ->assertJsonValidationErrors(['rep_id']);
+        ->assertJsonValidationErrors(['rep_name']);
 });
 
 it('allows a rep to log an activity on their own lead', function () {

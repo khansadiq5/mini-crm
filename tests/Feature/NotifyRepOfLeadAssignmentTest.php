@@ -15,7 +15,7 @@ it('dispatches NotifyRepOfLeadAssignment job when a lead is assigned', function 
 
     $this->actingAs($manager, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_id' => $rep->id,
+            'rep_name' => $rep->name,
         ])
         ->assertOk();
 
@@ -35,7 +35,7 @@ it('dispatches NotifyRepOfLeadAssignment job on reassignment', function () {
 
     $this->actingAs($manager, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_id' => $rep2->id,
+            'rep_name' => $rep2->name,
         ])
         ->assertOk();
 
@@ -54,7 +54,7 @@ it('does not dispatch NotifyRepOfLeadAssignment job when assignment validation f
 
     $this->actingAs($manager, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_id' => $otherManager->id,
+            'rep_name' => $otherManager->name,
         ])
         ->assertStatus(422);
 

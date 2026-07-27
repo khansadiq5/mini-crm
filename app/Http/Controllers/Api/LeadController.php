@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\ActivityType;
 use App\Enums\LeadStatus;
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AssignLeadRequest;
 use App\Http\Requests\StoreActivityRequest;
@@ -12,6 +14,7 @@ use App\Http\Resources\ActivityResource;
 use App\Http\Resources\LeadResource;
 use App\Jobs\NotifyRepOfLeadAssignment;
 use App\Models\Lead;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -98,13 +101,23 @@ class LeadController extends Controller
      */
     public function assign(AssignLeadRequest $request, Lead $lead): LeadResource
     {
+        $repName = $request->input('rep_name');
+        $rep = User::where('name', $repName)->where('role', UserRole::Rep)->firstOrFail();
+
         $lead->update([
-            'assigned_to' => $request->input('rep_id'),
+            'assigned_to' => $rep->id,
         ]);
 
-        NotifyRepOfLeadAssignment::dispatch($request->input('rep_id'), $lead->id);
+        $lead->activities()->create([
+            'user_id' => $request->user()->id,
+            'type' => ActivityType::Assigned,
+            'body' => "rep_id: {$rep->id}, rep_name: {$rep->name}",
+            'occurred_at' => now(),
+        ]);
 
-        return new LeadResource($lead->load('assignedRep'));
+        NotifyRepOfLeadAssignment::dispatch($rep->id, $lead->id);
+
+        return new LeadResource($lead->load(['assignedRep', 'activities']));
     }
 
     /**

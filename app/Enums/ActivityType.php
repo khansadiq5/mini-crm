@@ -8,4 +8,5 @@ enum ActivityType: string
     case Email = 'email';
     case Meeting = 'meeting';
     case Note = 'note';
+    case Assigned = 'assigned';
 }
