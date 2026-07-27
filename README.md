@@ -132,17 +132,6 @@ When a rep tries to access a lead assigned to another rep, the system returns `4
 2. **Aligns with Laravel's policy system** — `Gate::authorize()` naturally throws `AuthorizationException` → `403`. Forcing a `404` would require extra code to intercept and re-throw, adding complexity without proportional benefit in a trusted, token-authenticated internal CRM.
 3. **Internal tool context** — this is a sales team CRM, not a public-facing API. The attack surface where information leakage matters (e.g., user enumeration) is minimal compared to a public-facing system.
 
-## What I'd Do With More Time
-
-- **Soft deletes** on leads — currently leads are hard-deleted (cascading to activities). Soft deletes would allow recovery and audit trails.
-- **Activity timeline pagination** — the `show` endpoint eager-loads all activities. For leads with hundreds of activities, this should be a separate paginated endpoint.
-- **Rate limiting** — add `throttle` middleware to auth and API routes to prevent brute-force login attempts and API abuse.
-- **API versioning** — prefix routes under `/api/v1/` to allow non-breaking evolution of the API surface.
-- **Real notification channels** — swap the log-only `NotifyRepOfLeadAssignment` job for actual email/Slack notifications using Laravel Notifications.
-- **OpenAPI / Swagger documentation** — auto-generate API docs from the route definitions and Form Requests.
-- **Lead deletion endpoint** — `DELETE /api/leads/{lead}` with soft-delete support and manager-only authorization.
-- **Search optimization** — replace `LIKE %term%` with a full-text index or Laravel Scout for better search performance at scale.
-
 ## Bonus Features
 
 ### Phase 11 — Queued Job on Lead Assignment (Option A)
@@ -221,6 +210,9 @@ When a rep tries to access a lead assigned to another rep, the system returns `4
 | `POST` | `/api/logout` | `auth:sanctum` | Revokes the current API token |
 | `GET` | `/api/me` | `auth:sanctum` | Returns the authenticated user |
 
+#### Auth API Snapshot
+![Successful Login Response](https://github.com/khansadiq5/mini-crm/blob/main/public/Screenshots/Manager%20Login.png)
+
 **Implementation details:**
 
 - `LoginRequest` Form Request class handles validation (not inline `validate()`).
@@ -261,6 +253,10 @@ When a rep tries to access a lead assigned to another rep, the system returns `4
 - **403 vs 404 Decision:** Explicit `403` response for unauthorized access (see "One Deliberate Trade-off" above).
 - **Query Scoping:** `when($user->isRep(), ...)` ensures reps only fetch their own leads at the database level.
 - **Won/Lost Constraint:** Updating status to `won` or `lost` requires at least one logged activity, otherwise rejected with `422`.
+
+#### Validation Policy (422 Error)
+![Lead Status Validation Error](https://github.com/khansadiq5/mini-crm/blob/main/public/Screenshots/Status%20Policy.png)
+
 - **JSON Resources:** Responses transformed via `LeadResource`, `UserResource`, and `ActivityResource` for encapsulation and ISO 8601 timestamps.
 
 **Tests (11 passing in this module, 31 total):** Rep isolation (403), manager access (200), pagination, search, filtering, sorting, validated creations, won/lost constraints.
@@ -285,6 +281,10 @@ When a rep tries to access a lead assigned to another rep, the system returns `4
 
 - **Solving Cartesian Duplication:** Aggregates inside isolated subqueries (`lead_stats` and `activity_stats` grouped by rep), then `LEFT JOIN` onto `users`.
 - **Role Scoping:** Managers see all reps; reps see only their own stats.
+
+#### Rep Performance Report
+![Rep Performance Report Response](https://github.com/khansadiq5/mini-crm/blob/main/public/Screenshots/Rep%20Performance.png)
+
 - **Query Complexity O(1):** Aggregation happens database-side in a single execution. Verified via query log assertions in tests.
 
 **Tests (3 passing in this module, 40 total):** Accurate summation/grouping, role scoping, O(1) query complexity.
