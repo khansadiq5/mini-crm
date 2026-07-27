@@ -27,7 +27,7 @@ class StoreActivityRequest extends FormRequest
         return [
             'type' => ['required', Rule::enum(ActivityType::class)],
             'body' => ['required', 'string'],
-            'occurred_at' => ['required', 'date'],
+            'occurred_at' => ['nullable', 'date'],
         ];
     }
 }

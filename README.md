@@ -268,7 +268,7 @@ When a rep tries to access a lead assigned to another rep, the system returns `4
 **Design & Validation Decisions:**
 
 - **Assign Policy and Validation:** Authorized only for managers via `LeadPolicy@assign`. `AssignLeadRequest` validates that the `rep_id` exists and has the role of `rep`.
-- **Log Activity Policy and Validation:** Anyone with read access to the lead can log activities. `StoreActivityRequest` validates `type` (against `ActivityType` enum), `body` (string), and `occurred_at` (datetime).
+- **Log Activity Policy and Validation:** Anyone with read access to the lead can log activities. `StoreActivityRequest` validates `type` (against `ActivityType` enum), `body` (string), and optional `occurred_at` (datetime, defaults to current time).
 - **Created Activity Payload:** The authenticated user's ID is automatically stored as `user_id`. Returns `201 Created`.
 
 **Tests (6 passing in this module, 37 total):** Rep rejection on assign (403), manager assignment, validation failure for non-reps, rep activity logging, rep rejection on other leads, activity + won/lost integration.

@@ -246,6 +246,32 @@ it('allows a rep to log an activity on their own lead', function () {
         ->assertJsonPath('data.body', 'Called client, discussed project scoping.');
 });
 
+it('allows a rep to log an activity without occurred_at and defaults to now', function () {
+    $rep = User::factory()->rep()->create();
+    $lead = Lead::factory()->assignedTo($rep)->create();
+
+    $response = $this->actingAs($rep, 'sanctum')
+        ->postJson("/api/leads/{$lead->id}/activities", [
+            'type' => 'call',
+            'body' => 'Called client, discussed project scoping.',
+        ]);
+
+    $response->assertStatus(201)
+        ->assertJsonPath('data.type', 'call')
+        ->assertJsonPath('data.body', 'Called client, discussed project scoping.');
+
+    $this->assertDatabaseHas('activities', [
+        'lead_id' => $lead->id,
+        'user_id' => $rep->id,
+        'type' => 'call',
+        'body' => 'Called client, discussed project scoping.',
+    ]);
+
+    // Check timezone offset in occurred_at (should have +05:30 offset)
+    $activity = Activity::where('lead_id', $lead->id)->first();
+    expect($activity->occurred_at->toIso8601String())->toContain('+05:30');
+});
+
 it('denies a rep from logging an activity on someone else lead', function () {
     $rep = User::factory()->rep()->create();
     $otherRep = User::factory()->rep()->create();

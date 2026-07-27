@@ -128,7 +128,7 @@ class LeadController extends Controller
             'user_id' => $request->user()->id,
             'type' => $request->input('type'),
             'body' => $request->input('body'),
-            'occurred_at' => $request->input('occurred_at'),
+            'occurred_at' => $request->input('occurred_at') ?? now(),
         ]);
 
         return (new ActivityResource($activity->load('user')))
