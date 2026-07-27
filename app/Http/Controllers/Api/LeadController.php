@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\ActivityType;
 use App\Enums\LeadStatus;
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AssignLeadRequest;
 use App\Http\Requests\StoreActivityRequest;
@@ -101,11 +100,11 @@ class LeadController extends Controller
      */
     public function assign(AssignLeadRequest $request, Lead $lead): LeadResource
     {
-        $repName = $request->input('rep_name');
-        $rep = User::where('name', $repName)->where('role', UserRole::Rep)->firstOrFail();
+        $repId = $request->input('rep_id');
+        $rep = User::findOrFail($repId);
 
         $lead->update([
-            'assigned_to' => $rep->id,
+            'assigned_to' => $repId,
         ]);
 
         $lead->activities()->create([
@@ -115,7 +114,7 @@ class LeadController extends Controller
             'occurred_at' => now(),
         ]);
 
-        NotifyRepOfLeadAssignment::dispatch($rep->id, $lead->id);
+        NotifyRepOfLeadAssignment::dispatch($repId, $lead->id);
 
         return new LeadResource($lead->load(['assignedRep', 'activities']));
     }

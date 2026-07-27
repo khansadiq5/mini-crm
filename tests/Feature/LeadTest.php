@@ -181,7 +181,7 @@ it('denies rep from calling assign', function () {
 
     $response = $this->actingAs($rep, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_name' => $otherRep->name,
+            'rep_id' => $otherRep->id,
         ]);
 
     $response->assertStatus(403);
@@ -194,7 +194,7 @@ it('allows manager to assign a lead to a valid rep', function () {
 
     $response = $this->actingAs($manager, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_name' => $rep->name,
+            'rep_id' => $rep->id,
         ]);
 
     $response->assertOk()
@@ -223,11 +223,11 @@ it('fails validation when assigning lead to a non-rep user', function () {
 
     $response = $this->actingAs($manager, 'sanctum')
         ->postJson("/api/leads/{$lead->id}/assign", [
-            'rep_name' => $otherManager->name,
+            'rep_id' => $otherManager->id,
         ]);
 
     $response->assertStatus(422)
-        ->assertJsonValidationErrors(['rep_name']);
+        ->assertJsonValidationErrors(['rep_id']);
 });
 
 it('allows a rep to log an activity on their own lead', function () {
